@@ -221,6 +221,9 @@ func makeRenames(code string, packages []string) string {
 		if isPackage {
 			continue
 		}
+		if strings.HasPrefix(originalString, "`+") && strings.HasSuffix(originalString, "+`") {
+			continue
+		}
 
 		encodedString := base64.StdEncoding.EncodeToString([]byte(originalString))
 		newCode, fnName := injectBase64DecodeFunc(code)
