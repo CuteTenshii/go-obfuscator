@@ -8,6 +8,15 @@ A simple Go code obfuscator that renames variables, functions, and types to make
 - Encodes string literals in base64. Decodes them at runtime with `base64.StdEncoding.DecodeString`, which makes it harder to read the original strings while keeping the code functional.
 - Removes comments from the code
 
+## Usage
+
+1. Install Go on your machine if you haven't already.
+2. Clone this repository.
+3. Run the obfuscator with the following command:
+   ```bash
+   go run . -i yourfile.go
+   ```
+
 ## Example
 
 ### Original Code
