@@ -10,12 +10,9 @@ A simple Go code obfuscator that renames variables, functions, and types to make
 
 ## Usage
 
-1. Install Go on your machine if you haven't already.
-2. Clone this repository.
-3. Run the obfuscator with the following command:
-   ```bash
-   go run . -i yourfile.go
-   ```
+```bash
+go install github.com/CuteTenshii/go-obfuscator
+```
 
 ## Example
 
