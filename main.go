@@ -115,10 +115,10 @@ func parseGoMod(goModPath string) []string {
 }
 
 func buildExecutable(projectPath, outputPath string) error {
-	args := []string{
-		"build", "-trimpath", "-buildvcs=false", `-ldflags=-s -w`,
-		"-o", outputPath, projectPath,
-	}
+	cmdArgs := os.Args[1:]
+	args := []string{"build"}
+	args = append(args, cmdArgs...)
+	args = append(args, "-o", outputPath, projectPath)
 	log.Println("Building executable with command: go", strings.Join(args, " "))
 
 	cmd := exec.Command("go", args...)
