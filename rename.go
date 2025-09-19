@@ -14,6 +14,8 @@ var (
 	renames = map[string]string{}
 	// Track if base64 decoding function has been injected, and in which package
 	base64DecodeInjected = map[string]string{}
+	// List of constants. Used to make them variables
+	constants = map[string]string{}
 
 	// Example: func myFunction(
 	funcRegex = regexp.MustCompile(`func (\w+)\(`)
@@ -121,7 +123,9 @@ func makeRenames(code string, packages []string) string {
 	for _, match := range matches {
 		originalName := match[1]
 		if _, exists := renames[originalName]; !exists {
-			renames[originalName] = genNewName()
+			name := genNewName()
+			renames[originalName] = name
+			constants[originalName] = name
 		}
 	}
 
@@ -195,7 +199,7 @@ func makeRenames(code string, packages []string) string {
 	internalPackages := []string{
 		"fmt", "os", "io", "log", "net/http", "encoding/json", "bytes", "strings", "syscall", "unsafe",
 		"regexp", "math/rand", "time", "path/filepath", "encoding/base64", "slices", "flag", "strconv",
-		"database/sql", "crypto/aes", "crypto/cipher", "crypto/rand", "errors",
+		"database/sql", "crypto/aes", "crypto/cipher", "crypto/rand", "errors", "runtime", "os/exec",
 	}
 	for _, match := range stringLiterals {
 		originalString := match[3]
@@ -229,7 +233,7 @@ func makeRenames(code string, packages []string) string {
 		newCode, fnName := injectBase64DecodeFunc(code)
 		code = newCode
 		code = strings.ReplaceAll(code, `"`+originalString+`"`, fnName+`("`+encodedString+`")`)
-		code = addBase64EncodingImport(code)
+		code = addBase64EncodingImport(code, fnName)
 	}
 
 	// Encode raw string literals in base64
@@ -248,14 +252,20 @@ func makeRenames(code string, packages []string) string {
 		newCode, fnName := injectBase64DecodeFunc(code)
 		code = newCode
 		code = strings.ReplaceAll(code, "`"+originalString+"`", fnName+`("`+encodedString+`")`)
-		code = addBase64EncodingImport(code)
+		code = addBase64EncodingImport(code, fnName)
 	}
 
 	return code
 }
 
 func applyRenames(code string) string {
+	code = strings.ReplaceAll(code, "const (", "var (")
 	for original, newName := range renames {
+		for originalConst := range constants {
+			if original == originalConst {
+				code = strings.ReplaceAll(code, "const "+original, "var "+newName)
+			}
+		}
 		code = regexp.MustCompile(`\b`+original+`\b`).ReplaceAllString(code, newName)
 	}
 	return code
@@ -292,8 +302,8 @@ func extractVarNamesFromBlock(block string) []string {
 	return names
 }
 
-func addBase64EncodingImport(code string) string {
-	if !strings.Contains(code, `"encoding/base64"`) {
+func addBase64EncodingImport(code string, fnName string) string {
+	if !strings.Contains(code, `"encoding/base64"`) && strings.Contains(code, "func "+fnName+"(s string) string") {
 		if strings.Contains(code, "import (") {
 			code = strings.Replace(code, "import (", "import (\n\t\"encoding/base64\"", 1)
 		} else if strings.Contains(code, "import ") {

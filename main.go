@@ -4,36 +4,46 @@ import (
 	"flag"
 	"log"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
 func main() {
-	input := flag.String("i", "", "Input project path")
+	inputRelative := flag.String("i", "", "Input project path")
 	flag.Parse()
-	if *input == "" {
+	if *inputRelative == "" {
 		panic("Input project path is required")
 	}
 
-	tempFolder := "./r" //os.MkdirTemp("", "go-project-*")
+	tempFolder, err := os.MkdirTemp("/home/tenshii/Documents/go-obfuscator", "go-project-*")
+	if err != nil {
+		panic(err)
+	}
 	log.Println("Using temporary folder:", tempFolder)
 
-	files, err := os.ReadDir(*input)
+	input, err := filepath.Abs(*inputRelative)
+	if err != nil {
+		panic(err)
+	}
+	files, err := os.ReadDir(input)
 	if err != nil {
 		panic(err)
 	}
 
-	goModPackages := parseGoMod(*input + string(os.PathSeparator) + "go.mod")
+	goModPath := input + string(os.PathSeparator) + "go.mod"
+	goModPackages := parseGoMod(goModPath)
 	patches := make(map[string]string)
 	// Copy relevant files to a temporary directory to avoid modifying the original project
 	for _, file := range files {
 		fileName := file.Name()
-		if len(fileName) < 3 {
+		if file.IsDir() {
 			continue
 		}
-		if file.IsDir() || !strings.HasSuffix(fileName, ".go") {
+		if !strings.HasSuffix(fileName, ".go") && fileName != "go.mod" && fileName != "go.sum" {
 			continue
 		}
-		srcPath := *input + string(os.PathSeparator) + fileName
+		srcPath := input + string(os.PathSeparator) + fileName
 		dstPath := tempFolder + string(os.PathSeparator) + fileName
 		log.Println("Processing file:", srcPath)
 		err := copyFile(srcPath, dstPath)
@@ -59,6 +69,13 @@ func main() {
 			panic(err)
 		}
 	}
+
+	outputPath := input + string(os.PathSeparator) + "output.exe"
+	err = buildExecutable(tempFolder, outputPath)
+	if err != nil {
+		panic(err)
+	}
+	log.Println("Built executable at:", outputPath)
 }
 
 func parseGoMod(goModPath string) []string {
@@ -95,4 +112,19 @@ func parseGoMod(goModPath string) []string {
 	}
 
 	return packages
+}
+
+func buildExecutable(projectPath, outputPath string) error {
+	args := []string{
+		"build", "-trimpath", "-buildvcs=false", `-ldflags=-s -w`,
+		"-o", outputPath, projectPath,
+	}
+	log.Println("Building executable with command: go", strings.Join(args, " "))
+
+	cmd := exec.Command("go", args...)
+	cmd.Env = os.Environ()
+	cmd.Dir = projectPath
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
