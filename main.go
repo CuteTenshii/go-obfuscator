@@ -10,7 +10,11 @@ import (
 )
 
 func main() {
-	inputRelative := flag.String("i", "", "Input project path")
+	inputRelative := flag.String("input", "", "Input project path")
+	outputRelative := flag.String("output", "output.exe", "Output executable path")
+	trimPaths := flag.Bool("trimpath", true, "Trim paths in the binary")
+	buildVCS := flag.Bool("buildvcs", false, "Build with VCS info")
+	ldFlags := flag.String("ldflags", "-s -w", "Additional ldflags for the Go build")
 	flag.Parse()
 	if *inputRelative == "" {
 		panic("Input project path is required")
@@ -70,8 +74,17 @@ func main() {
 		}
 	}
 
-	outputPath := input + string(os.PathSeparator) + "output.exe"
-	err = buildExecutable(tempFolder, outputPath)
+	outputPath, err := filepath.Abs(*outputRelative)
+	if err != nil {
+		panic(err)
+	}
+	err = buildExecutable(buildExecutableOptions{
+		ProjectPath: tempFolder,
+		OutputPath:  outputPath,
+		TrimPaths:   *trimPaths,
+		BuildVCS:    *buildVCS,
+		LdFlags:     strings.Split(*ldFlags, " "),
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -114,10 +127,34 @@ func parseGoMod(goModPath string) []string {
 	return packages
 }
 
-func buildExecutable(projectPath, outputPath string) error {
-	cmdArgs := os.Args[1:]
+type buildExecutableOptions struct {
+	ProjectPath string
+	OutputPath  string
+	TrimPaths   bool
+	BuildVCS    bool
+	LdFlags     []string
+}
+
+func buildExecutable(options buildExecutableOptions) error {
 	args := []string{"build"}
-	args = append(args, cmdArgs...)
+	if options.TrimPaths {
+		args = append(args, "-trimpath")
+	}
+	if options.BuildVCS {
+		args = append(args, "-buildvcs=false")
+	}
+	if len(options.LdFlags) > 0 {
+		args = append(args, "-ldflags", strings.Join(options.LdFlags, " "))
+	}
+	projectPath, err := filepath.Abs(options.ProjectPath)
+	if err != nil {
+		return err
+	}
+	outputPath, err := filepath.Abs(options.OutputPath)
+	if err != nil {
+		return err
+	}
+	// Append output path and project path to args
 	args = append(args, "-o", outputPath, projectPath)
 	log.Println("Building executable with command: go", strings.Join(args, " "))
 
