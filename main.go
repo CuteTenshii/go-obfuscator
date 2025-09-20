@@ -9,6 +9,10 @@ import (
 	"strings"
 )
 
+var (
+	patches = make(map[string]string)
+)
+
 func main() {
 	inputRelative := flag.String("input", "", "Input project path")
 	outputRelative := flag.String("output", "output.exe", "Output executable path")
@@ -30,49 +34,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	files, err := os.ReadDir(input)
-	if err != nil {
-		panic(err)
-	}
 
 	goModPath := input + string(os.PathSeparator) + "go.mod"
 	goModPackages := parseGoMod(goModPath)
-	patches := make(map[string]string)
 	// Copy relevant files to a temporary directory to avoid modifying the original project
-	for _, file := range files {
-		fileName := file.Name()
-		if file.IsDir() {
-			continue
-		}
-		if !strings.HasSuffix(fileName, ".go") && fileName != "go.mod" && fileName != "go.sum" {
-			continue
-		}
-		srcPath := input + string(os.PathSeparator) + fileName
-		dstPath := tempFolder + string(os.PathSeparator) + fileName
-		log.Println("Processing file:", srcPath)
-		err := copyFile(srcPath, dstPath)
-		if err != nil {
-			panic(err)
-		}
-
-		// Process the file
-		file, err := os.ReadFile(dstPath)
-		patched := makeRenames(string(file), goModPackages)
-		if err != nil {
-			panic(err)
-		}
-		patches[dstPath] = patched
-	}
-
-	for _, file := range files {
-		dstPath := tempFolder + string(os.PathSeparator) + file.Name()
-		patched := applyRenames(patches[dstPath])
-		// Write the patched content back to the file
-		err = os.WriteFile(dstPath, []byte(patched), 0644)
-		if err != nil {
-			panic(err)
-		}
-	}
+	processDirectory(input, tempFolder, goModPackages)
+	processRenames(tempFolder, goModPackages)
 
 	outputPath, err := filepath.Abs(*outputRelative)
 	if err != nil {
@@ -91,6 +58,76 @@ func main() {
 	log.Println("Built executable at:", outputPath)
 }
 
+func processDirectory(inputPath, tempFolder string, goModPackages []string) {
+	files, err := os.ReadDir(inputPath)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, file := range files {
+		fileName := file.Name()
+		if file.IsDir() {
+			processDirectory(
+				inputPath+string(os.PathSeparator)+fileName, tempFolder+string(os.PathSeparator)+fileName,
+				goModPackages)
+			continue
+		}
+		if !strings.HasSuffix(fileName, ".go") && fileName != "go.mod" && fileName != "go.sum" {
+			continue
+		}
+		srcPath := inputPath + string(os.PathSeparator) + fileName
+		dstPath := tempFolder + string(os.PathSeparator) + fileName
+		err := copyFile(srcPath, dstPath)
+		if err != nil {
+			panic(err)
+		}
+		// Skip go.mod and go.sum files for patching
+		if fileName == "go.mod" || fileName == "go.sum" {
+			continue
+		}
+
+		log.Println("Processing file:", srcPath)
+		// Process the file
+		file, err := os.ReadFile(dstPath)
+		patched := makeRenames(string(file), goModPackages)
+		if err != nil {
+			panic(err)
+		}
+		patches[dstPath] = patched
+	}
+}
+
+func processRenames(tempFolder string, packages []string) {
+	files, err := os.ReadDir(tempFolder)
+	if err != nil {
+		panic(err)
+	}
+
+	// Apply the patches to the files in the temporary directory
+	for _, file := range files {
+		fileName := file.Name()
+		if file.IsDir() {
+			processRenames(tempFolder+string(os.PathSeparator)+fileName, packages)
+			continue
+		}
+		if !strings.HasSuffix(fileName, ".go") && fileName != "go.mod" && fileName != "go.sum" {
+			continue
+		}
+		// Skip go.mod and go.sum files for patching
+		if fileName == "go.mod" || fileName == "go.sum" {
+			continue
+		}
+
+		dstPath := tempFolder + string(os.PathSeparator) + file.Name()
+		patched := applyRenames(patches[dstPath], packages)
+		// Write the patched content back to the file
+		err = os.WriteFile(dstPath, []byte(patched), 0644)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
 func parseGoMod(goModPath string) []string {
 	data, err := os.ReadFile(goModPath)
 	if err != nil {
@@ -102,6 +139,13 @@ func parseGoMod(goModPath string) []string {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "module ") ||
 			strings.HasPrefix(line, "go ") {
+			// Add the module name as well
+			if strings.HasPrefix(line, "module ") {
+				fields := strings.Fields(line)
+				if len(fields) > 1 {
+					packages = append(packages, fields[1])
+				}
+			}
 			continue
 		}
 		fields := strings.Fields(line)
@@ -144,7 +188,7 @@ func buildExecutable(options buildExecutableOptions) error {
 		args = append(args, "-buildvcs=false")
 	}
 	if len(options.LdFlags) > 0 {
-		args = append(args, "-ldflags", strings.Join(options.LdFlags, " "))
+		args = append(args, "-ldflags="+strings.Join(options.LdFlags, " "))
 	}
 	projectPath, err := filepath.Abs(options.ProjectPath)
 	if err != nil {

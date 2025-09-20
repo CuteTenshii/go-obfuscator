@@ -2,7 +2,10 @@ package main
 
 import (
 	"io"
+	"log"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 func copyFile(src, dst string) error {
@@ -16,7 +19,18 @@ func copyFile(src, dst string) error {
 	// Create the destination file
 	destFile, err := os.Create(dst)
 	if err != nil {
-		return err
+		if strings.Contains(err.Error(), "The system cannot find the path specified") ||
+			strings.Contains(err.Error(), "no such file or directory") {
+			os.MkdirAll(filepath.Dir(dst), os.ModePerm)
+			destFile, err = os.Create(dst)
+			if err != nil {
+				log.Println("Failed to create destination file after creating directories:", err)
+				return err
+			}
+		} else {
+			log.Println("Failed to create destination file:", err)
+			return err
+		}
 	}
 	defer destFile.Close()
 

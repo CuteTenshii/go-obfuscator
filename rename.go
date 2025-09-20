@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"math/rand"
 	"regexp"
-	"slices"
 	"strings"
 )
 
@@ -64,6 +63,15 @@ var (
 	// Example: 45847
 	numberRegex = regexp.MustCompile(`\b(\d+)\b`)
 )
+
+func contains(s []string, str string) bool {
+	for _, v := range s {
+		if v == str {
+			return true
+		}
+	}
+	return false
+}
 
 func makeRenames(code string, packages []string) string {
 	// Remove comments to avoid renaming within them
@@ -197,9 +205,9 @@ func makeRenames(code string, packages []string) string {
 	stringLiterals := stringRegex.FindAllStringSubmatch(code, -1)
 	// List of internal Go packages. Those packages are NOT in the go.mod file
 	internalPackages := []string{
-		"fmt", "os", "io", "log", "net/http", "encoding/json", "bytes", "strings", "syscall", "unsafe",
-		"regexp", "math/rand", "time", "path/filepath", "encoding/base64", "slices", "flag", "strconv",
-		"database/sql", "crypto/aes", "crypto/cipher", "crypto/rand", "errors", "runtime", "os/exec",
+		"fmt", "os", "io", "log", "net", "encoding", "bytes", "strings", "syscall", "unsafe",
+		"regexp", "math", "time", "path", "slices", "flag", "strconv", "mime", "http",
+		"database", "crypto", "errors", "runtime", "image",
 	}
 	for _, match := range stringLiterals {
 		originalString := match[3]
@@ -212,12 +220,16 @@ func makeRenames(code string, packages []string) string {
 		// Skip base64 encoding if it's an import statement
 		if strings.Contains(match[0], "import ") {
 			continue
-		} else if slices.Contains(internalPackages, originalString) {
-			continue
+		}
+		for _, pkg := range internalPackages {
+			if originalString == pkg || strings.HasPrefix(originalString, pkg+"/") {
+				originalString = ""
+				break
+			}
 		}
 		isPackage := false
 		for _, pkg := range packages {
-			if strings.HasPrefix(originalString, pkg) {
+			if originalString == pkg || strings.HasPrefix(originalString, pkg+"/") {
 				isPackage = true
 				break
 			}
@@ -258,14 +270,51 @@ func makeRenames(code string, packages []string) string {
 	return code
 }
 
-func applyRenames(code string) string {
+func doesConstOnlyContainStrings(block string) bool {
+	lines := strings.Split(block, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		// Check if the line contains an '=' sign
+		if !strings.Contains(line, "=") {
+			return false
+		}
+		// Split by '=' and check if the value part is a string literal
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) < 2 {
+			return false
+		}
+		value := strings.TrimSpace(parts[1])
+		if !(strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`)) &&
+			!(strings.HasPrefix(value, "`") && strings.HasSuffix(value, "`")) {
+			return false
+		}
+	}
+	return true
+}
+
+func applyRenames(code string, packages []string) string {
 	code = strings.ReplaceAll(code, "const (", "var (")
 	for original, newName := range renames {
+		matchedPkg := false
+		for _, pkg := range packages {
+			if strings.Contains(pkg, original) {
+				matchedPkg = true
+				break
+			}
+		}
+		if matchedPkg {
+			continue
+		}
+
 		for originalConst := range constants {
 			if original == originalConst {
 				code = strings.ReplaceAll(code, "const "+original, "var "+newName)
 			}
 		}
+
 		code = regexp.MustCompile(`\b`+original+`\b`).ReplaceAllString(code, newName)
 	}
 	return code
