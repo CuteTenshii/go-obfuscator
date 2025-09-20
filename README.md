@@ -11,7 +11,7 @@ A simple Go code obfuscator that renames variables, functions, and types to make
 ## Usage
 
 ```bash
-go install github.com/CuteTenshii/go-obfuscator
+go install github.com/CuteTenshii/go-obfuscator@latest
 go-obfuscator -i path/to/project
 ```
 
